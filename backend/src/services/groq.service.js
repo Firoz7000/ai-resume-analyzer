@@ -76,7 +76,7 @@ export async function analyzeResumeWithGroq(resumeText, targetRole = DEFAULT_TAR
   // Ensure the contract even if the model output is imperfect.
   if (
     !parsed ||
-    typeof parsed.score !== 'number' ||
+    parsed.score == null ||
     !Array.isArray(parsed.strengths) ||
     !Array.isArray(parsed.weaknesses) ||
     !Array.isArray(parsed.missing_skills) ||
@@ -130,6 +130,12 @@ function asStringArray(value) {
 }
 
 function clampScore(score) {
-  if (typeof score !== 'number' || Number.isNaN(score)) return 0
-  return Math.max(0, Math.min(100, Math.round(score)))
+  const numeric =
+    typeof score === 'number'
+      ? score
+      : typeof score === 'string'
+        ? Number.parseFloat(score.replace(/[^\d.-]/g, ''))
+        : Number.NaN
+  if (!Number.isFinite(numeric)) return 0
+  return Math.max(0, Math.min(100, Math.round(numeric)))
 }

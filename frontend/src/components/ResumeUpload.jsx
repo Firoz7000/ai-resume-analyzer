@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { apiFetch } from '../services/api'
+import { apiFetch, normalizeAnalyzeResponse } from '../services/api'
 import { PrimaryButton } from './PrimaryButton'
 
 const MAX_BYTES = 5 * 1024 * 1024
@@ -9,6 +9,15 @@ const TARGET_ROLES = [
   'Backend Developer',
   'Data Analyst',
 ]
+
+const EMPTY_ANALYSIS = {
+  score: null,
+  strengths: [],
+  weaknesses: [],
+  missing_skills: [],
+  improvement_suggestions: [],
+  recommended_job_roles: [],
+}
 
 function isPdfFile(file) {
   return (
@@ -51,6 +60,7 @@ export function ResumeUpload() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [result, setResult] = useState(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   function openPicker() {
     setError(null)
@@ -62,6 +72,11 @@ export function ResumeUpload() {
   function handleFileChange(event) {
     const selected = event.target.files?.[0]
     setError(null)
+    setSuccess(false)
+    setResult({
+      analysis: { ...EMPTY_ANALYSIS },
+      targetRole,
+    })
 
     if (!selected) {
       return
@@ -94,21 +109,29 @@ export function ResumeUpload() {
     if (!file || loading) return
 
     setLoading(true)
+    setIsAnalyzing(true)
     setError(null)
     setSuccess(false)
+    setResult({
+      analysis: { ...EMPTY_ANALYSIS },
+      targetRole,
+    })
 
     const body = new FormData()
     body.append('resume', file)
     body.append('targetRole', targetRole)
 
     try {
-      const data = await apiFetch('/api/analyze', {
+      const response = await apiFetch('/api/analyze', {
         method: 'POST',
         body,
+        cache: 'no-store',
       })
+      const data = normalizeAnalyzeResponse(response)
+      console.log('[ResumeUpload] API score value:', data.analysis.score, data.analysis)
       // Expected shape: { textPreview, analysis: { score, strengths, ... } }
       setResult({
-        analysis: data?.analysis || null,
+        analysis: data.analysis || { ...EMPTY_ANALYSIS },
         targetRole: data?.targetRole || targetRole,
       })
       setSuccess(true)
@@ -116,6 +139,10 @@ export function ResumeUpload() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
     } finally {
+      if (inputRef.current) {
+        inputRef.current.value = ''
+      }
+      setIsAnalyzing(false)
       setLoading(false)
     }
   }
@@ -230,7 +257,13 @@ export function ResumeUpload() {
         </p>
       ) : null}
 
-      {result?.analysis ? (
+      {isAnalyzing ? (
+        <p className="mt-3 text-center text-sm font-medium text-indigo-600 dark:text-indigo-400 sm:text-left">
+          Analyzing your new resume...
+        </p>
+      ) : null}
+
+      {success && result?.analysis && !isAnalyzing ? (
         <ResultsCard analysis={result.analysis} targetRole={result.targetRole} />
       ) : null}
     </div>
@@ -238,7 +271,7 @@ export function ResumeUpload() {
 }
 
 function ResultsCard({ analysis, targetRole }) {
-  const score = typeof analysis.score === 'number' ? analysis.score : 0
+  const score = typeof analysis.score === 'number' ? analysis.score : null
   const scoreMeta = getScoreMeta(score)
 
   function handleDownloadReport() {
@@ -280,7 +313,7 @@ function ResultsCard({ analysis, targetRole }) {
               </p>
               <div className="flex items-center gap-2">
                 <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                  {score}
+                  {score ?? '--'}
                   <span className="text-sm font-semibold text-slate-500 dark:text-slate-500">
                     {' '}
                     / 100
@@ -367,7 +400,7 @@ function ResultsCard({ analysis, targetRole }) {
 }
 
 function ScoreRing({ score }) {
-  const clamped = Math.max(0, Math.min(100, Number(score) || 0))
+  const clamped = Math.max(0, Math.min(100, Number(score ?? 0) || 0))
   const r = 18
   const c = 2 * Math.PI * r
   const dash = (clamped / 100) * c
@@ -543,7 +576,7 @@ function IconBriefcase() {
 }
 
 function getScoreMeta(score) {
-  const value = Math.max(0, Math.min(100, Number(score) || 0))
+  const value = Math.max(0, Math.min(100, Number(score ?? 0) || 0))
 
   if (value >= 80) {
     return {
